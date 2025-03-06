@@ -4,9 +4,25 @@ let app = express();
 let cors = require("cors");
 let server = http.createServer(app);
 let socketio = require("socket.io");
-let io = socketio(server);
 
-app.use(cors());
+// CORS 설정 추가 (수정된 부분)
+const corsOptions = {
+  origin: "*",
+  methods: ["GET", "POST"],
+  credentials: true
+};
+
+app.use(cors(corsOptions));
+
+// Socket.IO 서버 생성 시 CORS 설정 추가
+let io = socketio(server, {
+  cors: {
+    origin: "*",
+    methods: ["GET", "POST"],
+    credentials: true
+  }
+});
+
 const PORT = process.env.PORT || 8081;
 
 let users = {};
