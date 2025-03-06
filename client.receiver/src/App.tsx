@@ -18,6 +18,8 @@ const App = () => {
   
   // 입력창 상태 관리
   const [message, setMessage] = useState<string>("");
+  // 연결 상태 표시
+  const [connectionStatus, setConnectionStatus] = useState<string>("연결 중...");
 
   const setupConnection = async () => {
     try {
@@ -34,9 +36,11 @@ const App = () => {
       dataChannelRef.current = pcRef.current.createDataChannel("textChannel");
       dataChannelRef.current.onopen = () => {
         console.log("데이터 채널이 열렸습니다.");
+        setConnectionStatus("연결됨");
       };
       dataChannelRef.current.onclose = () => {
         console.log("데이터 채널이 닫혔습니다.");
+        setConnectionStatus("연결 끊김");
       };
       
       pcRef.current.onicecandidate = (e) => {
@@ -46,15 +50,24 @@ const App = () => {
           socketRef.current.emit("candidate", e.candidate);
         }
       };
-      pcRef.current.oniceconnectionstatechange = (e) => {
-        console.log(e);
+      
+      pcRef.current.oniceconnectionstatechange = () => {
+        console.log("ICE 연결 상태 변경:", pcRef.current?.iceConnectionState);
+        if (pcRef.current?.iceConnectionState === "connected") {
+          setConnectionStatus("연결됨");
+        } else if (pcRef.current?.iceConnectionState === "disconnected" || 
+                  pcRef.current?.iceConnectionState === "failed") {
+          setConnectionStatus("연결 끊김");
+        }
       };
+      
       pcRef.current.ontrack = (ev) => {
         console.log("add remotetrack success");
         if (remoteVideoRef.current) {
           remoteVideoRef.current.srcObject = ev.streams[0];
         }
       };
+      
       socketRef.current.emit("join_room", {
         room: "1234",
       });
@@ -96,18 +109,24 @@ const App = () => {
         offerToReceiveAudio: true,
         offerToReceiveVideo: true,
       });
+      console.log("생성된 offer SDP:", sdp);
       await pcRef.current.setLocalDescription(new RTCSessionDescription(sdp));
+      console.log("Local description set successfully");
       socketRef.current.emit("offer", sdp);
     } catch (e) {
-      console.error(e);
+      console.error("Offer 생성 오류:", e);
     }
   };
 
   const createAnswer = async (sdp: RTCSessionDescription) => {
     if (!(pcRef.current && socketRef.current)) return;
     try {
+      console.log("Remote description 설정 시도 (answer)");
+      console.log("현재 signaling 상태:", pcRef.current.signalingState);
+      
       await pcRef.current.setRemoteDescription(new RTCSessionDescription(sdp));
       console.log("answer set remote description success");
+      
       const mySdp = await pcRef.current.createAnswer({
         offerToReceiveVideo: true,
         offerToReceiveAudio: true,
@@ -116,12 +135,12 @@ const App = () => {
       await pcRef.current.setLocalDescription(new RTCSessionDescription(mySdp));
       socketRef.current.emit("answer", mySdp);
     } catch (e) {
-      console.error(e);
+      console.error("Answer 생성 오류:", e);
     }
   };
 
   useEffect(() => {
-    // 연결 옵션 추가 (수정된 부분)
+    // 연결 옵션 추가
     socketRef.current = io.connect(SOCKET_SERVER_URL, {
       transports: ['websocket', 'polling'],
       forceNew: true
@@ -139,18 +158,37 @@ const App = () => {
       createAnswer(sdp);
     });
 
-    socketRef.current.on("getAnswer", (sdp: RTCSessionDescription) => {
+    socketRef.current.on("getAnswer", async (sdp: RTCSessionDescription) => {
       console.log("get answer");
       if (!pcRef.current) return;
-      pcRef.current.setRemoteDescription(new RTCSessionDescription(sdp));
+      
+      // 현재 연결 상태 확인
+      const currentState = pcRef.current.signalingState;
+      console.log("Current signaling state:", currentState);
+      
+      // stable 상태가 아닐 때만 setRemoteDescription 실행
+      if (currentState !== "stable") {
+        try {
+          await pcRef.current.setRemoteDescription(new RTCSessionDescription(sdp));
+          console.log("Remote description set successfully");
+        } catch (error) {
+          console.error("Error setting remote description:", error);
+        }
+      } else {
+        console.log("Connection already in stable state, ignoring answer");
+      }
     });
 
     socketRef.current.on(
       "getCandidate",
       async (candidate: RTCIceCandidateInit) => {
         if (!pcRef.current) return;
-        await pcRef.current.addIceCandidate(new RTCIceCandidate(candidate));
-        console.log("candidate add success");
+        try {
+          await pcRef.current.addIceCandidate(new RTCIceCandidate(candidate));
+          console.log("candidate add success");
+        } catch (error) {
+          console.error("Error adding ice candidate:", error);
+        }
       }
     );
 
@@ -188,6 +226,18 @@ const App = () => {
         margin: "0 0 20px 0",
         fontWeight: "bold"
       }}>RECEIVER</h1>
+      
+      {/* 연결 상태 표시 */}
+      <div style={{
+        padding: '5px 10px',
+        backgroundColor: connectionStatus === "연결됨" ? '#e6f7e6' : '#ffe6e6',
+        borderRadius: '4px',
+        marginBottom: '10px',
+        color: connectionStatus === "연결됨" ? '#2e7d32' : '#c62828'
+      }}>
+        {connectionStatus}
+      </div>
+      
       <video
         id="remotevideo"
         style={{

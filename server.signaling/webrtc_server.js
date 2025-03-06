@@ -5,7 +5,7 @@ let cors = require("cors");
 let server = http.createServer(app);
 let socketio = require("socket.io");
 
-// CORS 설정 추가 (수정된 부분)
+// CORS 설정 추가
 const corsOptions = {
   origin: "*",
   methods: ["GET", "POST"],
@@ -26,9 +26,7 @@ let io = socketio(server, {
 const PORT = process.env.PORT || 8081;
 
 let users = {};
-
 let socketToRoom = {};
-
 const maximum = 2;
 
 io.on("connection", (socket) => {
@@ -59,17 +57,47 @@ io.on("connection", (socket) => {
 
   socket.on("offer", (sdp) => {
     console.log("offer: " + socket.id);
-    socket.broadcast.emit("getOffer", sdp);
+    // 같은 방에 있는 다른 사용자에게만 전송
+    const roomID = socketToRoom[socket.id];
+    if (users[roomID]) {
+      const otherUsers = users[roomID].filter(user => user.id !== socket.id);
+      if (otherUsers.length > 0) {
+        // 방의 다른 사용자에게만 offer 전송
+        otherUsers.forEach(user => {
+          io.to(user.id).emit("getOffer", sdp);
+        });
+      }
+    }
   });
 
   socket.on("answer", (sdp) => {
     console.log("answer: " + socket.id);
-    socket.broadcast.emit("getAnswer", sdp);
+    // 같은 방에 있는 다른 사용자에게만 전송
+    const roomID = socketToRoom[socket.id];
+    if (users[roomID]) {
+      const otherUsers = users[roomID].filter(user => user.id !== socket.id);
+      if (otherUsers.length > 0) {
+        // 방의 다른 사용자에게만 answer 전송
+        otherUsers.forEach(user => {
+          io.to(user.id).emit("getAnswer", sdp);
+        });
+      }
+    }
   });
 
   socket.on("candidate", (candidate) => {
     console.log("candidate: " + socket.id);
-    socket.broadcast.emit("getCandidate", candidate);
+    // 같은 방에 있는 다른 사용자에게만 전송
+    const roomID = socketToRoom[socket.id];
+    if (users[roomID]) {
+      const otherUsers = users[roomID].filter(user => user.id !== socket.id);
+      if (otherUsers.length > 0) {
+        // 방의 다른 사용자에게만 candidate 전송
+        otherUsers.forEach(user => {
+          io.to(user.id).emit("getCandidate", candidate);
+        });
+      }
+    }
   });
 
   socket.on("disconnect", () => {
@@ -84,7 +112,7 @@ io.on("connection", (socket) => {
         return;
       }
     }
-    socket.broadcast.to(room).emit("user_exit", { id: socket.id });
+    socket.broadcast.to(roomID).emit("user_exit", { id: socket.id });
     console.log(users);
   });
 });
